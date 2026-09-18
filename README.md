@@ -30,14 +30,14 @@ docker compose up --build
 
 Open the operator console at <http://localhost:8000>, sign in with the local password `merch-dev`, and use **Start manual run**. Temporal UI is at <http://localhost:8080>; MinIO Console is at <http://localhost:9001>.
 
-The example passwords and service ports are for local development. Before exposing the stack beyond your machine, follow [Configuration and live setup](#configuration-and-live-setup) and [Reverse proxy, webhooks and backups](#reverse-proxy-webhooks-and-backups).
+The example passwords and service ports are for local development. Compose binds published ports to `127.0.0.1`. Before exposing the stack beyond your machine, follow [Configuration and live setup](#configuration-and-live-setup) and [Reverse proxy, webhooks and backups](#reverse-proxy-webhooks-and-backups).
 
 The startup migration creates the application schema. The scheduler runs both analytics and product development daily at **09:30 America/New_York**, and the worker executes both workflows. Set `MERCH_WORKFLOW_HOUR`, `MERCH_ANALYTICS_HOUR`, `MERCH_SCHEDULE_MINUTE`, and `MERCH_SCHEDULE_TIMEZONE` to adjust the schedule. Scheduled launchers create deterministic `merch-daily-YYYY-MM-DD` workflow IDs, so a daily run cannot be duplicated. Reconciliation preserves an existing pause.
 
 For a fast host-only acceptance run with no services or external APIs, install Python 3.14 and [uv](https://docs.astral.sh/uv/), then run:
 
 ```bash
-uv sync --extra dev --frozen
+uv sync --extra dev --locked
 uv run merch fixture
 uv run merch fixture --approve
 ```

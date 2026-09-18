@@ -65,7 +65,7 @@ services:
       TEMPORAL_ADDRESS: temporal:7233
       TEMPORAL_CORS_ORIGINS: http://localhost:8000
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     depends_on:
       temporal:
         condition: service_healthy
@@ -80,7 +80,7 @@ services:
     volumes:
       - minio-data:/data
     ports:
-      - "9001:9001"
+      - "127.0.0.1:9001:9001"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://127.0.0.1:9000/minio/health/live"]
       interval: 5s
@@ -102,7 +102,7 @@ services:
     <<: *app
     command: [".venv/bin/merch", "web"]
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
 
   worker:
     <<: *app
@@ -120,7 +120,7 @@ services:
     volumes:
       - ./docker/observability/otel-collector.yaml:/etc/otelcol/config.yaml:ro
     ports:
-      - "4318:4318"
+      - "127.0.0.1:4318:4318"
 
   prometheus:
     image: prom/prometheus:v3.5.0
@@ -129,7 +129,7 @@ services:
       - ./docker/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus-data:/prometheus
     ports:
-      - "9090:9090"
+      - "127.0.0.1:9090:9090"
 
   grafana:
     image: grafana/grafana:12.1.0
@@ -140,7 +140,7 @@ services:
       - grafana-data:/var/lib/grafana
       - ./docker/observability/grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
 
   realesrgan:
     build:

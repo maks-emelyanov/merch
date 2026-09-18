@@ -19,11 +19,12 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: "3.14"
-      - run: uv sync --extra dev --frozen
+      - run: uv sync --extra dev --locked
       - run: uv run ruff check .
       - run: uv run mypy src
       - run: uv run pytest
       - run: RUN_TEMPORAL_TESTS=1 uv run pytest -m temporal
+      - run: uv build
       - run: MERCH_ENV_FILE=.env.example docker compose config --quiet
 
   browser:
@@ -38,6 +39,6 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: "3.14"
-      - run: uv sync --extra dev --frozen
+      - run: uv sync --extra dev --locked
       - run: uv run playwright install --with-deps chromium
       - run: uv run pytest -m playwright

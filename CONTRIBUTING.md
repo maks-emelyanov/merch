@@ -5,7 +5,7 @@
 Install Python 3.14 and [uv](https://docs.astral.sh/uv/), then run:
 
 ```bash
-uv sync --extra dev --frozen
+uv sync --extra dev --locked
 cp .env.example .env
 uv run merch fixture
 ```
