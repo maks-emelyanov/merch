@@ -14,5 +14,6 @@ tests
 playwright-report
 test-results
 backups
+*.dump
 output
 dist

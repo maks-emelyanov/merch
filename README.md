@@ -2,7 +2,22 @@
 
 An automated, single-business print-on-demand production system. Each daily workflow researches exactly ten concepts, ranks them, creates one print-ready product package, validates it, then publishes enabled channels independently through Printify. Manual release approval, IP screening and attestation, and the Etsy production-partner confirmation check can each be enabled when needed.
 
-The safe default is fully local: fake model/provider responses and `PUBLISH_MODE=dry_run`. Scheduled and manual runs can complete automatically in dry-run mode. Live marketplace mutation requires an explicit `MERCH_PUBLISH_MODE=live` setting; QA, catalog, price, variant, and storefront verification still gate publication.
+The safe default uses fake model/provider responses and `MERCH_PUBLISH_MODE=dry_run`. Scheduled and manual runs can complete automatically in dry-run mode. Live marketplace mutation requires an explicit `MERCH_PUBLISH_MODE=live` setting; QA, catalog, price, variant, and storefront verification still gate publication.
+
+## How it works
+
+```mermaid
+flowchart LR
+    operator[Operator console] --> web[FastAPI web]
+    scheduler[Daily scheduler] --> temporal[Temporal]
+    web --> temporal
+    temporal --> worker[Pipeline worker]
+    worker --> database[(PostgreSQL)]
+    worker --> artifacts[(MinIO artifacts)]
+    worker --> providers[Configured providers and marketplaces]
+```
+
+The web process handles review and configuration. Temporal coordinates retries and schedules; the worker creates and validates packages, then publishes each enabled channel. PostgreSQL stores run state and MinIO stores versioned artwork. The default fake provider and dry-run publish modes exercise the workflow without live API calls.
 
 ## Quick start
 
@@ -15,12 +30,14 @@ docker compose up --build
 
 Open the operator console at <http://localhost:8000>, sign in with the local password `merch-dev`, and use **Start manual run**. Temporal UI is at <http://localhost:8080>; MinIO Console is at <http://localhost:9001>.
 
+The example passwords and service ports are for local development. Before exposing the stack beyond your machine, follow [Configuration and live setup](#configuration-and-live-setup) and [Reverse proxy, webhooks and backups](#reverse-proxy-webhooks-and-backups).
+
 The startup migration creates the application schema. The scheduler runs both analytics and product development daily at **09:30 America/New_York**, and the worker executes both workflows. Set `MERCH_WORKFLOW_HOUR`, `MERCH_ANALYTICS_HOUR`, `MERCH_SCHEDULE_MINUTE`, and `MERCH_SCHEDULE_TIMEZONE` to adjust the schedule. Scheduled launchers create deterministic `merch-daily-YYYY-MM-DD` workflow IDs, so a daily run cannot be duplicated. Reconciliation preserves an existing pause.
 
-For a fast host-only acceptance run with no services or external APIs:
+For a fast host-only acceptance run with no services or external APIs, install Python 3.14 and [uv](https://docs.astral.sh/uv/), then run:
 
 ```bash
-uv sync --extra dev
+uv sync --extra dev --frozen
 uv run merch fixture
 uv run merch fixture --approve
 ```
@@ -54,13 +71,13 @@ Use the first output as `MERCH_ADMIN_PASSWORD_HASH`, one random value as `MERCH_
 
 Configure one active product template through `PUT /api/template` (the OpenAPI console is at `/docs`). It must contain the current Printify blueprint/provider, exact front-DTG print dimensions, enabled variant IDs, colors/sizes/current production costs, and one Printify shop ID and fee assumptions per enabled channel. Etsy production-partner confirmation is checked only when `MERCH_ETSY_PRODUCTION_PARTNER_CHECK_ENABLED=true`. Marketplace fees are deliberately not hard-coded. Prices are calculated as:
 
-For the Etsy-only Bella+Canvas 3001 / SwiftPOD setup, `docker compose exec -T web .venv/bin/python -m merch.setup_etsy_tee` verifies live catalog variant IDs and installs a versioned 14-color, XS-3XL (98-variant) template using the existing Etsy shop and fee assumptions. The base colors are Black, White, Navy, Asphalt, Dark Grey Heather, Athletic Heather, Natural, Military Green, Olive, Light Blue, Maroon, True Royal, Red, and Soft Pink. The selection prioritizes [Printify's top-selling colors](https://printify.com/blog/product-variants/) where this provider offers them, then adds familiar choices across light, dark, and accent colors. Swatch hex values approximate the garment colors for artwork QA; verify them against garment samples when color matching matters. Production costs were reviewed in Printify on 2026-09-16; recheck prices and stock before live publishing. Artwork QA checks every enabled shirt color, and removes colors that fail contrast for that product.
-
 ```text
 next .99((production cost + fixed channel fee) / (1 - percentage fee - 0.40))
 ```
 
 Shipping is buyer-paid and excluded. Listing metadata is generated only from this snapshot. Before publishing, the worker re-reads the catalog; availability/cost changes update the package version and send it back for approval.
+
+For the Etsy-only Bella+Canvas 3001 / SwiftPOD setup, `docker compose exec -T web .venv/bin/python -m merch.setup_etsy_tee` verifies live catalog variant IDs and installs a versioned 14-color, XS-3XL (98-variant) template using the existing Etsy shop and fee assumptions. The base colors are Black, White, Navy, Asphalt, Dark Grey Heather, Athletic Heather, Natural, Military Green, Olive, Light Blue, Maroon, True Royal, Red, and Soft Pink. The selection prioritizes [Printify's top-selling colors](https://printify.com/blog/product-variants/) where this provider offers them, then adds familiar choices across light, dark, and accent colors. Swatch hex values approximate the garment colors for artwork QA; verify them against garment samples when color matching matters. Production costs were reviewed in Printify on 2026-09-16; recheck prices and stock before live publishing. Artwork QA checks every enabled shirt color, and removes colors that fail contrast for that product.
 
 Set `MERCH_IP_CHECK_ENABLED=true` to run deterministic and web-search IP checks and show the IP evidence and attestation checkbox in the run UI. It defaults to `false`. The setting also controls whether IP risk affects candidate ranking. Restart the web and worker processes after changing it.
 
@@ -123,13 +140,15 @@ The Printify webhook receiver is `/webhooks/printify`. Configure your public HTT
 Prometheus/Grafana plus an OTLP collector:
 
 ```bash
-MERCH_OTEL_EXPORTER_ENDPOINT=http://otel-collector:4318 docker compose --profile observability up --build
+# Add MERCH_OTEL_EXPORTER_ENDPOINT=http://otel-collector:4318 to .env first.
+docker compose --profile observability up --build
 ```
 
 NVIDIA Real-ESRGAN service:
 
 ```bash
-MERCH_REALESRGAN_ENDPOINT=http://realesrgan:8090 docker compose --profile nvidia up --build
+# Add MERCH_REALESRGAN_ENDPOINT=http://realesrgan:8090 to .env first.
+docker compose --profile nvidia up --build
 ```
 
 The worker checks accelerator health before use. If unavailable, it uses Lanczos and records a QA warning when enlargement exceeds 1.5×.
@@ -141,13 +160,14 @@ Terminate TLS in a reverse proxy, forward `Host`, `X-Forwarded-Proto` and `X-For
 Back up both relational databases and the object store together. Example snapshot commands:
 
 ```bash
-docker compose exec -T postgres pg_dump -U postgres -Fc merch > merch-$(date +%F).dump
-docker compose exec -T postgres pg_dump -U postgres -Fc temporal > temporal-$(date +%F).dump
+mkdir -p backups
+docker compose exec -T postgres pg_dump -U postgres -Fc merch > backups/merch-$(date +%F).dump
+docker compose exec -T postgres pg_dump -U postgres -Fc temporal > backups/temporal-$(date +%F).dump
 docker run --rm --network merch-pod_default -v "$PWD/backups:/backup" quay.io/minio/mc \
   sh -c 'mc alias set pod http://minio:9000 minioadmin minioadmin && mc mirror pod/merch-artifacts /backup/artifacts'
 ```
 
-Test restores regularly. Database rows reference immutable object keys; losing either side makes an audit package incomplete.
+The MinIO command uses the example local credentials; substitute your configured values before running it elsewhere. Keep backups outside Git and test restores regularly. Database rows reference immutable object keys; losing either side makes an audit package incomplete.
 
 ## Verification
 
@@ -155,11 +175,30 @@ Test restores regularly. Database rows reference immutable object keys; losing e
 uv run ruff check .
 uv run mypy src
 uv run pytest
-docker compose config --quiet
+MERCH_ENV_FILE=.env.example docker compose config --quiet
 ```
 
-CI tests use fakes or mocked HTTP transports and never call a live API. Tests cover strict schemas, ranking/IP rules, pricing, typography equality, prepress/alpha/profile checks, hashing, encryption/redaction, metrics/CSV normalization, OpenAI and Printify contracts, automatic and manual release, CSRF and authentication.
+The default test run skips the opt-in Temporal and browser integration tests. To run those checks locally:
 
-Generated artwork, run reports, local databases, `.env` files, and backups are excluded from Git. Use `.env.example` as the configuration template. See [CONTRIBUTING.md](CONTRIBUTING.md) for development and pull request guidance and [SECURITY.md](SECURITY.md) for reporting vulnerabilities. The repository currently has no open-source license; its owner must choose one before granting reuse rights.
+```bash
+RUN_TEMPORAL_TESTS=1 uv run pytest -m temporal
+uv run playwright install chromium
+RUN_PLAYWRIGHT=1 uv run pytest -m playwright
+```
+
+CI runs all three test groups with fake providers or mocked HTTP transports and does not call live marketplace APIs. Tests cover strict schemas, ranking/IP rules, pricing, typography equality, prepress/alpha/profile checks, hashing, encryption/redaction, metrics/CSV normalization, OpenAI and Printify contracts, automatic and manual release, CSRF and authentication.
+
+Generated artwork, run reports, local databases, `.env` files, and backups are excluded from Git. Use `.env.example` as the configuration template. See [CONTRIBUTING.md](CONTRIBUTING.md) for development and pull request guidance and [SECURITY.md](SECURITY.md) for reporting vulnerabilities.
+
+## Publishing and license
+
+Create an empty GitHub repository, then connect and push this existing `main` branch:
+
+```bash
+git remote add origin <github-repository-url>
+git push -u origin main
+```
+
+No open-source license has been selected. [GitHub does not require a license](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/licensing-a-repository) to host a repository, but without one the copyright holders retain reuse and redistribution rights. Select a license before inviting public reuse.
 
 This system improves evidence-based product selection. It does not guarantee sales, virality, trademark clearance, marketplace acceptance, or legal compliance.

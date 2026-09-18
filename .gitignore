@@ -23,6 +23,7 @@ htmlcov/
 playwright-report/
 test-results/
 backups/
+*.dump
 output/
 
 # Local editor and OS files

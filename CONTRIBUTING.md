@@ -23,4 +23,6 @@ MERCH_ENV_FILE=.env.example docker compose config --quiet
 
 Changes to workflows should include tests for the affected behavior. Describe the behavior and any manual checks in the pull request. Keep API keys, shop IDs, customer data, and production artifacts out of commits, logs, screenshots, and issue reports.
 
-The repository owner has not selected an open-source license yet. Contributions do not imply permission to reuse or redistribute the code.
+The Temporal and browser integration tests are opt-in locally. Their commands and browser setup are in the [README verification section](README.md#verification); CI runs both groups on every push and pull request.
+
+The repository owner has not selected an open-source license yet. Ask the owner before reusing or redistributing the code.
