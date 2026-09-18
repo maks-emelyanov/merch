@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="hero">
+  <div><p class="eyebrow">Daily production control</p><h1>Runs</h1></div>
+  <button id="start-run" hx-post="/api/runs" hx-headers='{"X-CSRF-Token":"{{ csrf_token }}"}' hx-swap="none">Start manual run</button>
+</div>
+
+<section class="metrics-grid">
+  {% for channel, values in totals.items() %}
+  <article><span>{{ channel|replace('_', ' ')|title }} · 90 days</span><strong>{{ values.orders }} orders</strong><small>${{ '%.2f'|format(values.revenue / 100) }} · {{ values.visits }} visits</small></article>
+  {% else %}
+  <article><span>90-day feedback</span><strong>No analytics yet</strong><small>Connect a channel or import Etsy Stats.</small></article>
+  {% endfor %}
+</section>
+
+<section class="panel">
+  <div class="panel-heading"><h2>Production history</h2><div><a href="/copy-refresh">Published copy review</a> · <a href="/connectors">Connector setup &amp; health</a></div></div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Scheduled</th><th>Status</th><th>Version</th><th>Selected concept</th><th></th></tr></thead>
+    <tbody>
+      {% for run in runs %}
+      <tr>
+        <td>{{ run.scheduled_for.strftime('%Y-%m-%d %H:%M') }}</td>
+        <td><span class="status status-{{ run.status }}">{{ run.status|replace('_', ' ') }}</span></td>
+        <td>v{{ run.version }}</td>
+        <td>{{ (run.selected_concept or {}).get('concept_name', 'Research pending') }}</td>
+        <td><a href="/runs/{{ run.id }}">Review →</a></td>
+      </tr>
+      {% else %}<tr><td colspan="5">No runs yet.</td></tr>{% endfor %}
+    </tbody>
+  </table></div>
+</section>
+{% endblock %}

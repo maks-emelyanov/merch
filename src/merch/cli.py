@@ -1,0 +1,180 @@
+from __future__ import annotations
+
+import asyncio
+import json
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Annotated
+from uuid import uuid4
+
+import typer
+import uvicorn
+from alembic.config import Config
+from argon2 import PasswordHasher
+
+from alembic import command
+from merch.config import get_settings
+from merch.copy_refresh import prepare_copy_refresh_batch
+from merch.database import get_engine, session_scope
+from merch.defaults import fixture_product_template
+from merch.models import Base
+from merch.observability import configure_observability
+from merch.pipeline import (
+    finish_publishing,
+    health_connectors,
+    import_etsy_listing_defaults,
+    publish_channel_run,
+    record_approval,
+    repair_published_etsy_listing,
+    run_fixture_pipeline,
+    sync_analytics,
+)
+from merch.repository import ConfigurationRepository, RunRepository
+from merch.schemas import ApprovalSignal, Channel, CreativeBrief, RunInput
+from merch.temporal import (
+    reconcile_schedules,
+    resume_researched_run,
+    retry_failed_artwork_run,
+    run_worker,
+    start_manual_run,
+)
+
+app = typer.Typer(help="Autonomous POD production operator commands", no_args_is_help=True)
+
+
+@app.command()
+def web(host: str = "0.0.0.0", port: int = 8000, reload: bool = False) -> None:
+    """Start the FastAPI operator console."""
+    uvicorn.run("merch.web:app", host=host, port=port, reload=reload, proxy_headers=True)
+
+
+@app.command()
+def worker() -> None:
+    """Start the Temporal activity and workflow worker."""
+    settings = get_settings()
+    configure_observability(settings)
+    asyncio.run(run_worker(settings))
+
+
+@app.command("migrate")
+def migrate(revision: str = "head") -> None:
+    """Apply Alembic database migrations."""
+    command.upgrade(Config("alembic.ini"), revision)
+
+
+@app.command("init-db")
+def init_db() -> None:
+    """Create current tables directly, useful only for isolated local fixtures."""
+    Base.metadata.create_all(get_engine())
+    typer.echo("database initialized")
+
+
+@app.command("schedule")
+def schedule() -> None:
+    """Create or update the daily analytics and production schedules at 09:30."""
+    asyncio.run(reconcile_schedules())
+    typer.echo("schedules reconciled")
+
+
+@app.command("run")
+def manual_run() -> None:
+    """Start a manual production workflow."""
+    value = asyncio.run(start_manual_run())
+    typer.echo(f"started {value.run_id}")
+
+
+@app.command("resume-research")
+def resume_research(run_id: str) -> None:
+    """Resume a failed run from its saved real research, without repeating the model call."""
+    value = asyncio.run(resume_researched_run(run_id))
+    typer.echo(f"resumed {value.run_id}")
+
+
+@app.command("retry-artwork")
+def retry_artwork(
+    run_id: str, brief_file: Annotated[Path | None, typer.Option("--brief-file")] = None
+) -> None:
+    """Retry failed QA artwork; repeated defects require a revised brief JSON file."""
+    brief = (
+        CreativeBrief.model_validate(json.loads(brief_file.read_text()))
+        if brief_file is not None
+        else None
+    )
+    value = asyncio.run(retry_failed_artwork_run(run_id, revised_brief=brief))
+    typer.echo(f"retrying artwork for {value.run_id}")
+
+
+@app.command("analytics")
+def analytics() -> None:
+    """Synchronize configured read-only marketplace analytics."""
+    typer.echo(asyncio.run(sync_analytics()))
+
+
+@app.command("connections")
+def connections() -> None:
+    """Perform read-only connector checks."""
+    typer.echo(asyncio.run(health_connectors()))
+
+
+@app.command("repair-etsy-listing")
+def repair_etsy_listing(run_id: str) -> None:
+    """Recheck a completed Etsy run and set its selectors to Size and Color."""
+    listing_id = asyncio.run(repair_published_etsy_listing(run_id))
+    typer.echo(f"verified Etsy listing {listing_id}: Size, Color")
+
+
+@app.command("prepare-copy-refresh")
+def prepare_copy_refresh() -> None:
+    """Stage a reviewable copy update for mapped live Etsy listings."""
+    batch_id = asyncio.run(prepare_copy_refresh_batch())
+    typer.echo(f"Copy refresh ready for review: /copy-refresh (batch {batch_id})")
+
+
+@app.command("import-etsy-defaults")
+def import_etsy_defaults(listing_id: int) -> None:
+    """Import validated Etsy listing profiles from a previously published app listing."""
+    version = asyncio.run(import_etsy_listing_defaults(listing_id))
+    typer.echo(f"Etsy listing defaults saved in template v{version}")
+
+
+@app.command("fixture")
+def fixture(approve: bool = False) -> None:
+    """Run the full fake-provider pipeline, optionally through dry-run publishing."""
+    settings = get_settings()
+    if settings.provider_mode != "fake" or settings.publish_mode != "dry_run":
+        raise typer.BadParameter("fixture requires fake providers and dry-run publishing")
+    Base.metadata.create_all(get_engine())
+    with session_scope() as session:
+        try:
+            ConfigurationRepository(session).get_template()
+        except RuntimeError:
+            ConfigurationRepository(session).save_template(fixture_product_template())
+    value = RunInput(run_id=uuid4(), scheduled_for=datetime.now(UTC), manual=True)
+    asyncio.run(run_fixture_pipeline(value, settings))
+    if approve:
+        signal = ApprovalSignal(
+            channels=[Channel.SHOPIFY, Channel.ETSY, Channel.AMAZON_US],
+            expected_version=1,
+            ip_attested=settings.ip_check_enabled,
+            actor="fixture-operator",
+        )
+        record_approval(str(value.run_id), signal)
+        results = [
+            asyncio.run(publish_channel_run(str(value.run_id), channel, settings))
+            for channel in signal.channels
+        ]
+        finish_publishing(str(value.run_id), results)
+    with session_scope() as session:
+        view = RunRepository(session).view(RunRepository(session).get(str(value.run_id)))
+        typer.echo(view.model_dump_json(indent=2))
+
+
+@app.command("hash-password")
+def hash_password() -> None:
+    """Interactively create an Argon2id admin password hash."""
+    password = typer.prompt("Password", hide_input=True, confirmation_prompt=True)
+    typer.echo(PasswordHasher().hash(password))
+
+
+if __name__ == "__main__":
+    app()

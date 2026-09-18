@@ -1,0 +1,2 @@
+CREATE DATABASE merch;
+CREATE DATABASE temporal;

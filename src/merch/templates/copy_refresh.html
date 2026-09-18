@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Published copy refresh{% endblock %}
+{% block content %}
+<div class="hero"><div><p class="eyebrow">Live listing review</p><h1>Published copy refresh</h1></div>
+  {% if batch %}<span class="status status-{{ batch.status }}">{{ batch.status|replace('_', ' ') }}</span>{% endif %}
+</div>
+<p>This batch updates only title, description, and tags on the existing Printify products and Etsy listings. Approval applies to the exact text shown below. Original run packages remain in their histories.</p>
+<div id="copy-refresh" data-batch-id="{{ batch.id if batch else '' }}" data-version="{{ batch.version if batch else '' }}" data-digest="{{ batch.digest if batch else '' }}" data-csrf="{{ csrf_token }}">
+  {% if not batch %}<section class="panel"><p>No copy refresh has been prepared.</p><button id="prepare-copy-refresh" type="button">Prepare live listing drafts</button></section>
+  {% else %}
+    {% if batch.error %}<p class="error">{{ batch.error }}</p>{% endif %}
+    {% for item in batch['items'] %}
+    <section class="panel"><div class="panel-heading"><h2>Etsy listing {{ item.marketplace_listing_id }}</h2><span class="status status-{{ item.status }}">{{ item.status|replace('_', ' ') }} · {{ (item.stage or 'waiting')|replace('_', ' ') }}</span></div>
+      <p><a href="/runs/{{ item.run_id }}">Source run</a> · Printify {{ item.printify_product_id }}</p>
+      {% if item.error %}<p class="error">{{ item.error }}</p>{% endif %}
+      {% if item.warning %}<p class="warning">{{ item.warning }}</p>{% endif %}
+      {% if item.before and item.after %}
+      <div class="columns">
+        <article><h3>Current live copy</h3><p class="eyebrow">Etsy title</p><p>{{ item.before.etsy.title }}</p><p class="eyebrow">Description</p><p style="white-space:pre-wrap">{{ item.before.etsy.description }}</p><p class="eyebrow">Tags</p><p>{{ item.before.etsy.tags|join(', ') }}</p>
+          {% if item.before.printify != item.before.etsy %}<details><summary>Current Printify copy differs</summary><p>{{ item.before.printify.title }}</p><p style="white-space:pre-wrap">{{ item.before.printify.description }}</p><p>{{ item.before.printify.tags|join(', ') }}</p></details>{% endif %}
+        </article>
+        <article><h3>Proposed copy</h3><div class="copy-refresh-item" data-item-id="{{ item.id }}">
+          <label>Title<input class="copy-title" value="{{ item.after.title }}" {% if batch.status != 'pending_review' %}disabled{% endif %}></label>
+          <label>Description<textarea class="copy-description package-editor" {% if batch.status != 'pending_review' %}disabled{% endif %}>{{ item.after.long_description }}</textarea></label>
+          <label>Tags, one per line<textarea class="copy-tags package-editor" {% if batch.status != 'pending_review' %}disabled{% endif %}>{{ item.after.tags|join('\n') }}</textarea></label>
+          {% if batch.status == 'pending_review' %}<button class="copy-save" type="button">Save this revision</button>{% endif %}
+        </div></article>
+      </div>
+      {% endif %}
+    </section>
+    {% endfor %}
+    {% if batch.status == 'preparing' %}<p>Draft generation is in progress. Refresh this page for progress.</p><button id="prepare-copy-refresh" type="button">Resume preparation</button>{% endif %}
+    {% if batch.status == 'pending_review' %}<section class="panel"><h2>Approve exact batch v{{ batch.version }}</h2><p>Review both revisions before applying them to the live listings.</p><button id="approve-copy-refresh" type="button">Approve and apply both revisions</button></section>{% endif %}
+    {% if batch.status == 'verification_required' or batch.status == 'applying' %}<section class="panel"><h2>Resume verification</h2><p>Updates resume against the same product and listing IDs.</p><button id="retry-copy-refresh" type="button">Resume approved batch</button></section>{% endif %}
+  {% endif %}
+</div>
+{% endblock %}

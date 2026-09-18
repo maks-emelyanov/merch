@@ -1,0 +1,26 @@
+# Contributing
+
+## Local development
+
+Install Python 3.14 and [uv](https://docs.astral.sh/uv/), then run:
+
+```bash
+uv sync --extra dev --frozen
+cp .env.example .env
+uv run merch fixture
+```
+
+The example configuration uses fake providers and dry-run publishing. Do not use live provider credentials or marketplace publishing for tests. Generated artwork, reports, local databases, and `.env` files stay outside Git.
+
+Before opening a pull request, run:
+
+```bash
+uv run ruff check .
+uv run mypy src
+uv run pytest
+MERCH_ENV_FILE=.env.example docker compose config --quiet
+```
+
+Changes to workflows should include tests for the affected behavior. Describe the behavior and any manual checks in the pull request. Keep API keys, shop IDs, customer data, and production artifacts out of commits, logs, screenshots, and issue reports.
+
+The repository owner has not selected an open-source license yet. Contributions do not imply permission to reuse or redistribute the code.

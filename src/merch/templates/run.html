@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block title %}Run {{ run.id }}{% endblock %}
+{% block content %}
+<div class="hero">
+  <div><p class="eyebrow">{{ run.scheduled_for.strftime('%B %d, %Y') }} · version {{ run.version }}</p><h1>{{ (run.selected_concept or {}).get('concept_name', 'Production run') }}</h1></div>
+  <span class="status status-{{ run.status }}">{{ run.status|replace('_', ' ') }}</span>
+</div>
+{% if run.error %}<p class="error">{{ run.error }}</p>{% endif %}
+{% if payload.listing_generation_state and payload.listing_generation_state.warning %}<p class="warning">{{ payload.listing_generation_state.warning }}</p>{% endif %}
+{% if run.status == 'awaiting_brief_revision' %}
+<section class="panel"><h2>Revise the creative brief</h2><p>Update the visual instructions to resolve the repeated defect, then retry this concept. Research and selection will be reused.</p>
+  <textarea id="revised-brief-json" class="package-editor">{{ payload.creative_brief|tojson(indent=2) }}</textarea>
+  <button id="retry-artwork" type="button" data-run-id="{{ run.id }}" data-csrf="{{ csrf_token }}">Retry with revised brief</button>
+</section>
+{% endif %}
+
+{% if run.artifacts|selectattr('kind', 'equalto', 'production-v' ~ run.version)|list %}
+<section class="panel"><div class="panel-heading"><h2>Artwork revisions</h2><span>Immutable SHA-256 assets</span></div>
+  {% if payload.artwork_effects %}
+  {% set typography = payload.artwork_effects.get('typography', {}) %}
+  {% set distress = payload.artwork_effects.get('distress', {}) %}
+  {% set effect_warnings = payload.artwork_effects.get('warnings', []) %}
+  {% set arc_labels = {'none': 'Straight lettering', 'up': 'Upward arch', 'down': 'Downward arch'} %}
+  <div class="artwork-effects"><p><strong>Latest artwork effects:</strong>
+    {% if payload.typography_spec %}{{ arc_labels.get(typography.get('applied_arc', 'none'), 'Straight lettering') }} · {% endif %}
+    {% if distress.get('removed_fraction', 0) <= 0 %}No distress{% else %}{{ 'Whole-design' if distress.get('scope') == 'design' else 'Text' }} distress{% if distress.get('applied_level', 0) > 0 %}, level {{ distress.applied_level }}/5{% endif %} · {% if distress.removed_fraction < 0.001 %}less than 0.1{% else %}{{ '%.1f'|format(distress.removed_fraction * 100) }}{% endif %}% ink removed{% endif %}.
+  </p>
+  {% if typography.get('requested_arc', 'none') != typography.get('applied_arc', 'none') %}<p class="warning">The requested {{ arc_labels.get(typography.requested_arc, typography.requested_arc)|lower }} could not be applied. Review the artwork and QA findings.</p>{% endif %}
+  {% for warning in effect_warnings %}<p class="warning">{{ warning }}</p>{% endfor %}
+  {% if not effect_warnings and (distress.get('requested_level', 0) != distress.get('applied_level', 0) or distress.get('reduced_for_detail', false)) %}<p class="warning">{% if distress.get('applied_level', 0) == 0 and distress.get('removed_fraction', 0) > 0 %}Distress was reduced below level 1{% elif distress.get('requested_level', 0) != distress.get('applied_level', 0) %}Distress was reduced from level {{ distress.requested_level }} to {{ distress.get('applied_level', 0) }}{% else %}Distress was reduced{% endif %} to protect lettering and small details.</p>{% endif %}
+  </div>
+  {% endif %}
+  <div class="art-grid">{% for artifact in run.artifacts|selectattr('kind', 'equalto', 'production-v' ~ run.version)|sort(attribute='created_at', reverse=true) %}<figure><div class="checker"><img src="/artifacts/{{ artifact.id }}" alt="Production artwork revision {{ artifact.revision }}"></div><figcaption>{{ artifact.kind }} · revision {{ artifact.revision }}<br><code>{{ artifact.sha256[:16] }}…</code></figcaption></figure>{% endfor %}</div>
+</section>
+{% endif %}
+
+{% if payload.featured_color_selection %}
+<section class="panel"><h2>Featured shirt color</h2>
+  <p><strong>{{ payload.featured_color_selection.selected_color }}</strong> · {{ payload.featured_color_selection.reason }} ({{ payload.featured_color_selection.method|replace('_', ' ') }}).</p>
+  {% if payload.featured_color_selection.fallback_reason %}<p class="muted">{{ payload.featured_color_selection.fallback_reason }}</p>{% endif %}
+  <figure><img src="/artifacts/{{ payload.featured_color_selection.preview_artifact_id }}" alt="Final artwork previewed on every approved shirt color" loading="lazy" style="max-width:100%;height:auto"><figcaption>Color previews used for the featured image choice. The listing uses Printify's garment mockup.</figcaption></figure>
+</section>
+{% endif %}
+
+{% if payload.openai_cost.stages %}
+<section class="panel"><h2>Estimated OpenAI spend</h2><p><strong>${{ '%.4f'|format(payload.openai_cost.estimated_usd) }}</strong> for this run{% if payload.openai_cost.unpriced_calls %} · {{ payload.openai_cost.unpriced_calls }} calls lack usage or a known rate{% endif %}. Estimates use recorded token usage and standard rates; check OpenAI billing for the final amount.</p>
+  <ul>{% for stage, item in payload.openai_cost.stages.items() %}<li>{{ stage|replace('_', ' ') }}: ${{ '%.4f'|format(item.estimated_usd) }} ({{ item.calls }} calls{% if item.unpriced %}, {{ item.unpriced }} unpriced{% endif %})</li>{% endfor %}</ul>
+</section>
+{% endif %}
+
+<div class="columns">
+  <section class="panel"><h2>QA{% if ip_check_enabled %} and IP evidence{% endif %}</h2>
+    {% if payload.qa_report %}<p><strong>QA:</strong> {{ 'passed' if payload.qa_report.passed else 'failed' }} at {{ payload.qa_report.width }}×{{ payload.qa_report.height }}</p><ul>{% for issue in payload.qa_report.issues %}<li>{{ issue.severity }} · {{ issue.message }}</li>{% else %}<li>No issues recorded.</li>{% endfor %}</ul>{% endif %}
+    {% if payload.excluded_shirt_colors %}<p class="warning"><strong>Excluded after contrast QA:</strong> {{ payload.excluded_shirt_colors|join(', ') }}. All sizes in those colors are removed from this product.</p>{% endif %}
+    {% if payload.replacement_shirt_colors %}<p><strong>Catalog replacements that passed contrast QA:</strong> {{ payload.replacement_shirt_colors|join(', ') }}. These colors are included in the approved prices and publication.</p>{% endif %}
+    {% if ip_check_enabled and payload.ip_report %}<p><strong>IP screen:</strong> {{ payload.ip_report.status }} · risk {{ payload.ip_report.risk_score }}/100</p><p class="warning">This evidence is not legal clearance.</p><ul>{% for match in payload.ip_report.matches %}<li>{{ match.source }} — {{ match.explanation }}</li>{% endfor %}</ul><a href="{{ payload.ip_report.uspto_search_url }}" rel="noreferrer">Open USPTO search</a>{% endif %}
+  </section>
+  <section class="panel"><h2>Candidate ranking</h2><ol class="ranking">{% for concept in run.concepts|sort(attribute='weighted_score', reverse=true) %}<li><span>{{ concept.data.concept_name }}</span><strong>{{ '%.1f'|format(concept.weighted_score or 0) }}</strong><small>{{ 'eligible' if concept.eligible else concept.rejection_reason if ip_check_enabled else 'ineligible' }}</small></li>{% endfor %}</ol></section>
+</div>
+
+{% if payload.listings %}<section class="panel"><h2>Channel packages</h2><div class="listing-grid">{% for listing in payload.listings.listings %}<article><p class="eyebrow">{{ listing.channel|replace('_', ' ') }}</p><h3>{{ listing.title }}</h3><p>{{ listing.short_description }}</p><div class="tags">{% for tag in listing.tags %}<span>{{ tag }}</span>{% endfor %}</div></article>{% endfor %}</div>
+  {% if run.status == 'awaiting_approval' %}<details><summary>Edit copy and prices as JSON</summary><p class="muted">Saving creates a new review-package version and invalidates any prior approval.</p><textarea id="package-json" class="package-editor">{{ {'listings': payload.listings, 'prices': payload.price_quotes}|tojson(indent=2) }}</textarea><button id="save-package" type="button">Save package as new version</button></details>{% endif %}
+</section>{% endif %}
+
+{% if run.status == 'awaiting_approval' and manual_review_required %}
+<section class="approval panel"><p class="eyebrow">Human release gate</p><h2>Approve exact version {{ run.version }}</h2><p>Featured listing image: <strong>{{ featured_variant }}</strong>. Select only the channels you intend to publish. The approval is invalidated if artwork, copy, pricing, costs, or channel selection changes.</p>
+  <form id="approval-form" data-run-id="{{ run.id }}" data-version="{{ run.version }}" data-csrf="{{ csrf_token }}">
+    <div class="checks"><label><input type="checkbox" name="channel" value="shopify"> Shopify</label><label><input type="checkbox" name="channel" value="etsy"> Etsy</label><label><input type="checkbox" name="channel" value="amazon_us"> Amazon US</label></div>
+    {% if ip_check_enabled %}<label class="attest"><input type="checkbox" id="ip-attested" required> I reviewed the evidence and attest that I accept responsibility for IP clearance.</label>{% endif %}
+    <label>Type PUBLISH<input id="confirmation" required pattern="PUBLISH" autocomplete="off"></label>
+    <div class="actions"><button type="submit">Approve selected channels</button><button type="button" class="quiet run-signal" data-action="regenerate">Regenerate artwork</button><button type="button" class="danger run-signal" data-action="reject">Reject</button></div>
+  </form>
+</section>
+{% elif run.status == 'awaiting_approval' %}
+<section class="panel"><h2>Automatic release</h2><p>The package passed QA. The worker is validating the current catalog and enabled channels before publication.</p></section>
+{% endif %}
+
+{% if run.publishes %}<section class="panel"><h2>Publishing status</h2><div class="listing-grid">{% for item in run.publishes %}<article><h3>{{ item.channel|replace('_',' ')|title }}</h3><span class="status status-{{ item.status }}">{{ item.status|replace('_',' ') }}</span><p>{{ item.printify_product_id or 'Product ID pending' }}</p>{% if item.response_data and item.response_data.stage %}<p>Recovery: {{ item.response_data.stage|replace('_',' ') }}</p>{% endif %}{% if item.response_data and item.response_data.etsy_listing_id %}<p>Etsy listing {{ item.response_data.etsy_listing_id }}</p>{% endif %}{% if item.error %}<p class="warning">{{ item.error }}</p>{% endif %}{% if item.status in ('failed', 'reconciliation_required') and run.status in ('failed', 'partially_published', 'verification_required') %}<button type="button" class="retry-channel" data-run-id="{{ run.id }}" data-channel="{{ item.channel }}" data-csrf="{{ csrf_token }}">Retry verification</button>{% endif %}</article>{% endfor %}</div></section>{% endif %}
+
+<details class="panel"><summary>Raw audit package</summary><pre>{{ payload|tojson(indent=2) }}</pre></details>
+{% endblock %}

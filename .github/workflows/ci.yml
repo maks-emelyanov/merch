@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      MERCH_PROVIDER_MODE: fake
+      MERCH_PUBLISH_MODE: dry_run
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.14"
+      - run: uv sync --extra dev --frozen
+      - run: uv run ruff check .
+      - run: uv run mypy src
+      - run: uv run pytest
+      - run: RUN_TEMPORAL_TESTS=1 uv run pytest -m temporal
+      - run: MERCH_ENV_FILE=.env.example docker compose config --quiet
+
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      RUN_PLAYWRIGHT: "1"
+      MERCH_PROVIDER_MODE: fake
+      MERCH_PUBLISH_MODE: dry_run
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.14"
+      - run: uv sync --extra dev --frozen
+      - run: uv run playwright install --with-deps chromium
+      - run: uv run pytest -m playwright

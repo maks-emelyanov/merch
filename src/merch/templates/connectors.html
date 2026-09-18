@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}Connectors and catalog{% endblock %}
+{% block content %}
+<div class="hero"><div><p class="eyebrow">Deployment configuration</p><h1>Connectors &amp; catalog</h1></div><a href="/api/connectors">Run live read-only checks →</a></div>
+<section class="metrics-grid">
+  {% for name, ready in configured.items() %}<article><span>{{ name }}</span><strong>{{ 'configured' if ready else 'not configured' }}</strong></article>{% endfor %}
+</section>
+{% if states %}<section class="panel"><h2>Last synchronization results</h2><table><thead><tr><th>Connector</th><th>Healthy</th><th>Detail</th><th>Last sync</th></tr></thead><tbody>{% for state in states %}<tr><td>{{ state.name }}</td><td>{{ state.healthy }}</td><td>{{ state.detail }}</td><td>{{ state.last_synced_at or 'never' }}</td></tr>{% endfor %}</tbody></table></section>{% endif %}
+<section class="panel" id="connector-setup" data-csrf="{{ csrf_token }}">
+  <h2>Printify product template</h2><p class="muted">Each run chooses its featured shirt color from the final artwork. The catalog choice breaks ties and supplies the preferred mockup size. For storefront verification, configure the Etsy API key, shared secret, access token, and shop ID.</p>
+  <label for="featured-variant">Featured listing photo fallback</label><select id="featured-variant"><option value="">Select a variant</option>{% for variant in featured_options %}<option value="{{ variant.variant_id }}" {% if product_template.featured_variant_id == variant.variant_id %}selected{% endif %}>{{ variant.color }} / {{ variant.size }}</option>{% endfor %}</select>
+  <p class="muted">Changes to this choice update the versioned template below. Save the template before the next release.</p>
+  <textarea id="template-json" class="package-editor">{{ product_template|tojson(indent=2) }}</textarea><button id="save-template" type="button">Save versioned template</button>
+</section>
+<div class="columns">
+  <section class="panel"><h2>Etsy Stats CSV</h2><p class="muted">Imports impression, visit, favorite, cart and sales fields that the API does not provide.</p><input id="etsy-csv" type="file" accept=".csv,text/csv"><button id="import-etsy" type="button">Import CSV</button></section>
+  <section class="panel"><h2>Encrypted OAuth value</h2><p class="muted">Stored using the deployment master key. Values are never returned by the API.</p><select id="credential-name"><option value="etsy_access_token">Etsy access token</option><option value="etsy_refresh_token">Etsy refresh token</option><option value="amazon_refresh_token">Amazon refresh token</option></select><input id="credential-value" type="password" autocomplete="off"><button id="save-credential" type="button">Store encrypted value</button></section>
+</div>
+{% endblock %}
