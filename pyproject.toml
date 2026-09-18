@@ -3,6 +3,8 @@ name = "merch"
 version = "0.1.0"
 description = "Autonomous, approval-gated print-on-demand product pipeline"
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.14"
 dependencies = [
   "alembic>=1.16.0",
@@ -62,6 +64,7 @@ only-include = [
   ".python-version",
   "CONTRIBUTING.md",
   "Dockerfile",
+  "LICENSE",
   "README.md",
   "SECURITY.md",
   "alembic",

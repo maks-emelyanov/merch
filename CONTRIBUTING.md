@@ -25,4 +25,4 @@ Changes to workflows should include tests for the affected behavior. Describe th
 
 The Temporal and browser integration tests are opt-in locally. Their commands and browser setup are in the [README verification section](README.md#verification); CI runs both groups on every push and pull request.
 
-The repository owner has not selected an open-source license yet. Ask the owner before reusing or redistributing the code.
+This project uses the [MIT License](LICENSE). Submit only contributions you have the right to offer under that license.

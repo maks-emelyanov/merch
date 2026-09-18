@@ -199,6 +199,6 @@ git remote add origin <github-repository-url>
 git push -u origin main
 ```
 
-No open-source license has been selected. [GitHub does not require a license](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/licensing-a-repository) to host a repository, but without one the copyright holders retain reuse and redistribution rights. Select a license before inviting public reuse.
+This project is released under the [MIT License](LICENSE). It permits use, modification, and redistribution, including commercial use, as long as the copyright and license notice are kept with copies of the software.
 
 This system improves evidence-based product selection. It does not guarantee sales, virality, trademark clearance, marketplace acceptance, or legal compliance.
